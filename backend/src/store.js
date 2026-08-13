@@ -9,8 +9,6 @@ export const ECHEC = {
 }
 
 export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
-    // Copie de travail en RAM. Le JSON importé n'est jamais muté ;
-    // les enchères ajoutées disparaissent au redémarrage du processus.
     const annonces = structuredClone(annoncesInitiales)
 
     function meilleureEnchere(annonce) {
@@ -22,7 +20,6 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
         return new Date(annonce.dateFin) <= maintenant()
     }
 
-    /** Forme exposée par l'API : statut et meilleure enchère sont calculés, pas stockés. */
     function enReponse(annonce) {
         return {
             ...annonce,
@@ -47,7 +44,7 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
     }
 
     function ajouterEnchere(annonceId, pseudo, montant) {
-        // RM1 — annonce inexistante
+        // RM1: annonce inexistante
         const annonce = annonceParId(annonceId)
         if (!annonce) {
             return refus(
@@ -56,10 +53,7 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
             )
         }
 
-        // RM5 — validation de format, avant toute comparaison.
-        // Indispensable en JS : une comparaison avec undefined ou une chaîne
-        // produit NaN, et toute comparaison avec NaN est fausse — RM3 et RM4
-        // laisseraient donc passer ces valeurs.
+        // RM5: validation de format, avant toute comparaison.
         if (typeof pseudo !== "string" || pseudo.trim() === "") {
             return refus(ECHEC.DONNEES_INVALIDES, "Le pseudo est obligatoire.")
         }
@@ -70,7 +64,7 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
             )
         }
 
-        // RM2 — annonce terminée
+        // RM2: annonce terminée
         if (estTerminee(annonce)) {
             return refus(
                 ECHEC.ANNONCE_TERMINEE,
@@ -80,9 +74,7 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
 
         const meilleure = meilleureEnchere(annonce)
 
-        // RM3 — montant <= meilleure enchère actuelle.
-        // Testé AVANT RM4 : le seuil de RM4 est plus haut, il absorberait ce cas
-        // et le 409 deviendrait inatteignable.
+        // RM3: montant <= meilleure enchère actuelle.
         if (montant <= meilleure) {
             return refus(
                 ECHEC.MONTANT_TROP_BAS,
@@ -90,7 +82,7 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
             )
         }
 
-        // RM4 — incrément inférieur au pas d'enchère
+        // RM4: incrément inférieur au pas d'enchère
         const minimum = meilleure + annonce.pasEnchere
         if (montant < minimum) {
             return refus(
@@ -99,8 +91,6 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
             )
         }
 
-        // La date est générée par le serveur, jamais reçue du client :
-        // sinon n'importe qui pourrait antidater son enchère.
         annonce.encheres.push({
             pseudo: pseudo.trim(),
             montant,
@@ -110,10 +100,7 @@ export function creerStore(annoncesInitiales, maintenant = () => new Date()) {
         return { succes: true, echec: null, message: null, annonce }
     }
 
-    // Le tableau `annonces` n'est pas exposé : il n'est atteignable
-    // que par ces fonctions (closure).
     return { toutesLesAnnonces, annonceParId, enReponse, estTerminee, ajouterEnchere }
 }
 
-/** Instance utilisée par le serveur. Les tests créent la leur avec creerStore(). */
 export const store = creerStore(annonceData)
