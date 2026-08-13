@@ -1,51 +1,83 @@
-# Test technique — Alternance Développeur Full-Stack
+> Énoncé du test : [ENONCE.md](ENONCE.md) et [SUJET.md](SUJET.md)
 
-Bienvenue ! Ce test a pour objectif de comprendre **comment tu raisonnes et comment tu structures ton code**, pas de te piéger. Il n'y a pas de solution unique attendue.
+# NOTES
 
-## Choix de la stack
+## Stack
 
-Tu choisis **l'une** des deux stacks suivantes (celle où tu es le plus à l'aise) :
+- **Backend** : Node.js + Express (JavaScript, modules ESM)
+- **Frontend** : Vue 3 + Vite + TypeScript
+- **Stockage** : en mémoire. 
 
-| Option | Backend | Frontend |
-|--------|---------|----------|
-| **A** | C# / .NET (Web API) | React Typescript |
-| **B** | Node.js (Framework au choix) | Vue 3 ou Nuxt Typescript |
+## Lancer le projet
 
-> Indique ton choix dans le fichier `NOTES.md` (voir plus bas).
+Deux terminaux.
 
-## Le sujet
+**Backend** (port 3333) :
 
-Le sujet complet est décrit dans [`SUJET.md`](./SUJET.md) : une **mini plateforme d'enchères** avec une API et une petite interface.
+    cd backend
+    npm install
+    npm run dev
 
-## Ce qu'on attend de toi
+**Frontend** (port 5173) :
 
-- ⏱️ **Temps indicatif : 4 à 6 heures.** Il n'est pas nécessaire de tout finir. Il vaut mieux une partie propre et réfléchie qu'un projet complet mais bâclé.
-- 🧠 **Ton raisonnement compte plus que le résultat.** Documente tes choix, tes hypothèses et ce que tu ferais avec plus de temps dans `NOTES.md`.
-- 🧪 Quelques **tests** sur la logique métier principale sont un vrai plus (pas besoin de couverture complète).
-- 🎨 Le design du frontend n'est **pas évalué**. Une interface fonctionnelle et lisible suffit.
+    cd frontend
+    npm install
+    npm run dev
 
-## Contraintes techniques
+Puis ouvrir http://localhost:5173
 
-- Pas de base de données obligatoire : un stockage **en mémoire** ou un fichier JSON suffit (les données de départ sont dans [`data/annonces.json`](./data/annonces.json)).
-- Le backend expose une **API REST** consommée par le frontend.
-- Le code doit se lancer facilement : documente les commandes dans `NOTES.md`.
+Le backend autorise l'origine `http://localhost:5173` via CORS. Si Vite démarre sur un autre
+port, il faut l'ajouter dans `backend/src/server.js`.
 
-## Livrables
+## Structure
 
-1. Ton code dans les dossiers `backend/` et `frontend/` (ou une autre organisation si tu la justifies).
-2. Un fichier **`NOTES.md`** à la racine contenant :
-   - la stack choisie et les commandes pour lancer le projet ;
-   - tes choix techniques et hypothèses ;
-   - ce que tu n'as pas eu le temps de faire et comment tu l'aurais fait ;
-   - les difficultés rencontrées.
-3. Un historique Git avec des **commits réguliers et des messages clairs** (on regarde comment tu avances, pas seulement le résultat final).
+    backend/src/store.js     état en mémoire + les 5 règles métier, sans notion HTTP
+    backend/src/server.js    Express, les 3 endpoints, traduction cause métier -> code HTTP
+    frontend/src/            client API, liste, détail, formulaire d'enchère
 
-## Rendu
+`store.js` renvoie une cause métier (`MONTANT_TROP_BAS`, `ANNONCE_TERMINEE`…) et `server.js` la
+traduit en code de statut. La logique métier reste ainsi indépendante du protocole.
 
-- Pousse ton travail sur un fork ou un repo privé et invite-nous, **ou** envoie une archive `.zip` incluant le dossier `.git`.
+## Codes HTTP
 
-## Une IA, c'est autorisé ?
+| Cas | Code |
+|---|---|
+| Annonce inexistante | `404` |
+| Pseudo vide ou montant invalide | `400` |
+| Annonce terminée | `410` |
+| Montant inférieur ou égal à la meilleure enchère actuelle | `409` |
+| Montant sous le pas d'enchère | `422` |
 
-Oui, les outils d'assistance (Copilot, ChatGPT, Claude...) sont autorisés — ils font partie du métier. En revanche, **tu dois être capable d'expliquer chaque ligne de ton code** : le test sera suivi d'un débrief oral où l'on te demandera de justifier tes choix et de faire évoluer ton code en live.
+Les règles sont évaluées dans l'ordre `RM1 -> RM5 -> RM2 -> RM3 -> RM4`. RM3 est testée avant RM4
+car le seuil de RM4 est plus haut : l'ordre inverse rendrait le `409` inatteignable. 
 
-Bon courage ! 🚀
+## Hypothèses
+
+- Statut et meilleure enchère sont calculés par le serveur à chaque réponse, pas stockés.
+- La date d'une enchère est générée par le serveur, jamais reçue du client.
+- Un montant exactement égal au minimum requis est accepté.
+- `GET /api/annonces` expose toutes les annonces, terminées comprises, avec leur statut.
+
+## Question 1 — Deux utilisateurs enchérissent en même temps
+
+Mon implémentation stocke tout en mémoire. La fonction qui ajoute une enchère ne fait aucune opération asynchrone : elle lit la meilleure enchère, compare et écrit sans qu'aucune autre requête ne puisse s'intercaler. Node étant mono-thread, deux requêtes simultanées sont traitées l'une après l'autre. Le cas est donc esquivé par le choix de stockage, pas traité explicitement.
+
+Avec une base de données, la lecture devient asynchrone : deux requêtes peuvent lire le même état avant qu'aucune n'écrive, et accepter deux enchères qui auraient dû s'exclure. Je traiterais alors les enchères d'une même annonce en série, via une file par annonce, pour retrouver la garantie que j'ai aujourd'hui par défaut. 
+
+## Question 2 — Des milliers d'annonces et d'utilisateurs
+
+Remplacer le stockage mémoire par une base de données pour avoir une persistance des données et les centraliser entre plusieurs instances du serveur. Ensuite ne plus charger tout l'historique d'une annonce : puisque toute enchère acceptée doit dépasser la précédente, la meilleure enchère est forcément la dernière, il suffit de la lire au lieu de parcourir des milliers de lignes. L'historique complet ne serait chargé qu'à la demande, par tranches. Enfin, s'il y a vraiment beaucoup d'annonces, ajouter une barre de recherche avec des filtres, et ne renvoyer les résultats que par pages, envoyer tout le catalogue à chaque appel n'est plus tenable.
+
+## Difficultés rencontrées
+
+- Bascule de stack : commencé sur .NET, non pratiqué depuis deux ans, abandonné au profit de
+  Node/Express pour tenir le délai.
+- Vue : venant de React, l'interface a d'abord été prototypée en HTML/JS vanilla pour valider les
+  appels API et les cas d'erreur, avant portage en Vue 3.
+
+## Ce qui n'a pas été fait
+
+- Tests automatisés. Le découpage a été fait pour les rendre simples à écrire (`store.js` est
+  testable sans serveur), mais ils n'ont pas été écrits.
+- Aucun bonus de la Partie 3 (filtre, tri, temps restant, rafraîchissement automatique).
+- Pas de gestion d'identité : le pseudo est saisi librement et envoyé dans le corps de la requête.
